@@ -35,36 +35,53 @@ export function buildTown(seed: number): Uint8Array {
   // street lamps along main avenues
   for (let t = 36; t <= 88; t += 8)
     for (const s of [-1, 1]) for (const side of [-3, 3]) {
-      box(side, side, 1, 3, s * t, s * t, B.LOG); set(side, 4, s * t, B.GLASS);
-      box(s * t, s * t, 1, 3, side, side, B.LOG); set(s * t, 4, side, B.GLASS);
+      box(side, side, 1, 3, s * t, s * t, B.LOG); set(side, 4, s * t, B.LANTERN);
+      box(s * t, s * t, 1, 3, side, side, B.LOG); set(s * t, 4, side, B.LANTERN);
     }
 
   // ---------- building primitives ----------
+  // four vernacular styles: jettied Tudor, stone cottage, brick townhouse, plaster longhouse
   const house = (u0, v0, w, d, doorSouth, k) => {
-    const floors = rnd(u0, v0 + k) < 0.35 ? 2 : 1;
+    const style = Math.floor(rnd(u0 * 7 + k, v0 * 13) * 4);
+    const floors = [2, 1, 3, 2][style];
     const wallH = floors * 4 - 1;
-    const wall = rnd(u0 + 3, v0) < 0.5 ? B.TIMBER : B.PLANKS;
+    const ground = [B.COBBLE, B.COBBLE, B.BRICK, B.PLANKS][style];
+    const upper = [B.PLASTER, B.COBBLE, B.BRICK, B.PLASTER][style];
+    const frame = [B.LOG, B.LOG, B.STONE_BRICK, B.TIMBER][style];
+    const roof = [B.TIMBER, B.THATCH, B.STONE_BRICK, B.BRICK][style];
+    const jetty = style === 0 || style === 3 ? 1 : 0;
     box(u0, u0 + w - 1, 0, 0, v0, v0 + d - 1, B.PLANKS);
-    for (let h = 1; h <= wallH; h++)
-      for (let v = v0; v < v0 + d; v++)
+    let vs = v0, ve = v0 + d - 1;
+    for (let h = 1; h <= wallH; h++) {
+      const fl = (h - 1) >> 2, jet = fl > 0 ? jetty : 0;
+      vs = v0 - (doorSouth ? 0 : jet); ve = v0 + d - 1 + (doorSouth ? jet : 0);
+      const mat = fl === 0 ? ground : upper;
+      for (let v = vs; v <= ve; v++)
         for (let u = u0; u < u0 + w; u++) {
-          const eu = u === u0 || u === u0 + w - 1, ev = v === v0 || v === v0 + d - 1;
+          const eu = u === u0 || u === u0 + w - 1, ev = v === vs || v === ve;
           if (!eu && !ev) { set(u, h, v, h % 4 === 0 ? B.PLANKS : 0); continue; }
-          let id = eu && ev ? B.LOG : h % 4 === 0 ? B.LOG : wall;
-          if (h % 4 === 2 && !(eu && ev) && ((eu ? v - v0 : u - u0) % 2 === 1)) id = B.GLASS;
+          const t = ev ? u - u0 : v - vs;
+          let id = eu && ev ? frame : h % 4 === 0 ? frame : mat;
+          if (mat === B.PLASTER && t % 3 === 0) id = frame; // half-timber studs
+          if (h % 4 === 2 && !(eu && ev) && t % 2 === 1) id = B.GLASS;
           set(u, h, v, id);
         }
+    }
     const du = u0 + (w >> 1), dv = doorSouth ? v0 + d - 1 : v0;
-    set(du, 1, dv, 0); set(du, 2, dv, 0);
-    // gable roof along u
-    const roof = rnd(u0, v0 + 7) < 0.5 ? B.BRICK : B.PLANKS;
-    for (let r = 0; r <= (d >> 1); r++) {
+    set(du, 1, dv, B.DOOR); set(du, 2, dv, B.DOOR);
+    set(du + 1, 2, dv, B.LANTERN); // porch lantern
+    for (let f = 0; f < floors; f++) set(u0 + 1, f * 4 + 3, doorSouth ? v0 + 1 : v0 + d - 2, B.LANTERN); // ceiling lamp per floor
+    // gable roof along u over the top floor
+    const RV0 = vs, RD = ve - vs + 1;
+    for (let r = 0; r <= (RD >> 1); r++) {
       const h = wallH + 1 + r;
       for (let u = u0 - 1; u <= u0 + w; u++) {
-        set(u, h, v0 - 1 + r, roof); set(u, h, v0 + d - r, roof);
-        if (r > 0) for (let v = v0 + r; v < v0 + d - r; v++) if (u === u0 || u === u0 + w - 1) set(u, h, v, wall);
+        set(u, h, RV0 - 1 + r, roof); set(u, h, RV0 + RD - r, roof);
+        if (r > 0) for (let v = RV0 + r; v < RV0 + RD - r; v++) if (u === u0 || u === u0 + w - 1) set(u, h, v, upper);
       }
     }
+    if (RD & 1) for (let u = u0 - 1; u <= u0 + w; u++) set(u, wallH + 1 + ((RD + 1) >> 1), RV0 + (RD >> 1), roof);
+    if (style === 1 || style === 2) box(u0 + 1, u0 + 1, wallH + 1, wallH + (RD >> 1) + 3, RV0 + 1, RV0 + 1, B.COBBLE); // chimney
   };
   const hall = (u0, v0, w, d, hgt, mat, roofMat, doors = true) => {
     box(u0, u0 + w - 1, 0, 0, v0, v0 + d - 1, B.PLANKS);
@@ -77,12 +94,17 @@ export function buildTown(seed: number): Uint8Array {
           if ((h === 2 || h === 7) && !(eu && ev) && ((u + v) % 3 === 0)) id = B.GLASS;
           set(u, h, v, id);
         }
-    if (doors) for (const dv of [v0, v0 + d - 1]) { const du = u0 + (w >> 1); box(du - 1, du + 1, 1, 3, dv, dv, 0); }
+    if (doors) for (const dv of [v0, v0 + d - 1]) {
+      const du = u0 + (w >> 1); box(du - 1, du + 1, 1, 3, dv, dv, B.DOOR);
+      set(du - 2, 3, dv, B.LANTERN); set(du + 2, 3, dv, B.LANTERN);
+    }
+    set(u0 + (w >> 1), hgt > 6 ? 4 : hgt, v0 + (d >> 1), B.LANTERN);
+    if (hgt > 6) set(u0 + (w >> 1), hgt, v0 + (d >> 1), B.LANTERN);
     for (let r = 0; r <= (d >> 1); r++) for (let u = u0 - 1; u <= u0 + w; u++) { set(u, hgt + 1 + r, v0 - 1 + r, roofMat); set(u, hgt + 1 + r, v0 + d - r, roofMat); }
     for (let r = 1; r <= (d >> 1); r++) for (const u of [u0, u0 + w - 1]) for (let v = v0 + r; v < v0 + d - r; v++) set(u, hgt + r, v, mat);
   };
   const well = (u, v) => {
-    box(u - 1, u + 1, 0, 1, v - 1, v + 1, B.COBBLE); set(u, 0, v, B.WATER); set(u, 1, v, 0);
+    box(u - 1, u + 1, 0, 1, v - 1, v + 1, B.COBBLE); set(u, 0, v, B.WATER); set(u, 1, v, 0); set(u, 3, v, B.LANTERN);
     for (const [a, b] of [[-1, -1], [1, 1]]) box(u + a, u + a, 2, 3, v + b, v + b, B.LOG);
     box(u - 1, u + 1, 4, 4, v - 1, v + 1, B.PLANKS);
   };
@@ -112,7 +134,7 @@ export function buildTown(seed: number): Uint8Array {
       if (r > lim) continue;
       set(u, h, v, r === lim ? (h === 0 ? B.COBBLE : h < 8 ? B.COBBLE : B.PLANKS) : h === 0 || h === 7 ? B.PLANKS : 0);
     }
-    set(cu, 1, cv + 3, 0); set(cu, 2, cv + 3, 0);
+    set(cu, 1, cv + 3, B.DOOR); set(cu, 2, cv + 3, B.DOOR); set(cu + 1, 3, cv + 3, B.LANTERN);
     box(cu - 2, cu + 2, 15, 15, cv - 2, cv + 2, B.BRICK); box(cu - 1, cu + 1, 16, 16, cv - 1, cv + 1, B.BRICK); set(cu, 17, cv, B.BRICK);
     // sails on the south face
     const hy = 12, sv = cv + 3;
@@ -133,7 +155,7 @@ export function buildTown(seed: number): Uint8Array {
     for (const [a, b] of [[0, 0], [3, 0], [0, 3], [3, 3]]) box(u + a, u + a, 1, 3, v + b, v + b, B.LOG);
     box(u, u + 3, 4, 4, v, v + 3, k % 2 ? B.BRICK : B.TIMBER);
     box(u + 1, u + 2, 1, 1, v, v, B.PLANKS); // counter
-    set(u + 1, 2, v + 1, k % 3 === 0 ? B.FLOWER : k % 3 === 1 ? B.LEAVES : B.SAND);
+    set(u + 2, 3, v + 2, B.LANTERN); set(u + 1, 2, v + 1, k % 3 === 0 ? B.FLOWER : k % 3 === 1 ? B.LEAVES : B.SAND);
   };
   const market = (cu, cv) => {
     for (let v = cv - 6; v <= cv + 6; v++) for (let u = cu - 6; u <= cu + 6; u++) set(u, 0, v, (u + v) & 1 ? B.COBBLE : B.STONE_BRICK);
@@ -197,7 +219,7 @@ export function buildTown(seed: number): Uint8Array {
       if (ev && v === v0 && h >= 4 && h <= 8 && Math.abs(u - cu) <= 1 + (h === 8 ? -1 : 0)) id = B.GLASS; // rose window
       set(u, h, v, id);
     }
-    box(cu - 1, cu + 1, 1, 4, v0 + 12, v0 + 12, 0); set(cu, 5, v0 + 12, 0);
+    box(cu - 1, cu + 1, 1, 4, v0 + 12, v0 + 12, B.DOOR); set(cu, 5, v0 + 12, B.GLASS); set(cu - 2, 3, v0 + 12, B.LANTERN); set(cu + 2, 3, v0 + 12, B.LANTERN); set(cu - 3, 3, v0 + 3, B.LANTERN); set(cu + 3, 3, v0 + 3, B.LANTERN);
     for (let r = 0; r <= 6; r++) for (let v = v0 - 1; v <= v0 + 13; v++) { set(u0 - 1 + r, 11 + r, v, B.BRICK); set(u0 + 11 - r, 11 + r, v, B.BRICK); }
     for (let r = 1; r <= 5; r++) for (const v of [v0, v0 + 12]) for (let u = u0 + r; u <= u0 + 10 - r; u++) set(u, 10 + r, v, B.STONE_BRICK);
     for (let v = v0 + 3; v <= v0 + 10; v += 2) { set(cu - 3, 1, v, B.PLANKS); set(cu - 2, 1, v, B.PLANKS); set(cu + 2, 1, v, B.PLANKS); set(cu + 3, 1, v, B.PLANKS); } // pews
@@ -226,7 +248,7 @@ export function buildTown(seed: number): Uint8Array {
       const e = u === cu + 2 || u === cu + 6 || v === cv - 2 || v === cv + 6 || h === 4;
       set(u, h, v, h === 0 ? B.DIRT : e ? B.GLASS : h === 1 ? (rnd(u, v) < 0.5 ? B.FERN : B.ALOE) : 0);
     }
-    set(cu + 4, 1, cv - 2, 0); set(cu + 4, 2, cv - 2, 0);
+    set(cu + 4, 1, cv - 2, B.DOOR); set(cu + 4, 2, cv - 2, B.DOOR);
     for (let u = cu - 5; u <= cu + 6; u++) if (rnd(u, cv + 7) < 0.6) set(u, 1, cv + 6, B.FLOWER);
   };
   const tavern = (cu, cv, name) => {
@@ -281,6 +303,45 @@ export function buildTown(seed: number): Uint8Array {
       const f = special[cu + "," + cv];
       if (f) f(cu, cv, 0); else housesCell(cu, cv);
     }
+  // lamp posts on every street crossing
+  const post = (u, v) => { box(u, u, 1, 3, v, v, B.LOG); set(u, 4, v, B.LANTERN); };
+  for (let a = -90; a <= 90; a += 18) for (let b = -90; b <= 90; b += 18) {
+    if (Math.abs(a) <= 27 && Math.abs(b) <= 27) continue;
+    post(a + 2, b + 2);
+  }
+  // plaza lamps ringing the inner bailey
+  for (let t = -32; t <= 32; t += 8) { if (Math.abs(t) === 24 || t === 0) continue; post(-27, t); post(27, t); }
+  for (let t = -16; t <= 16; t += 8) if (t) { post(t, -34); post(t, 34); }
+
+  // ---------- inner curtain wall around the citadel ----------
+  const IW = 22, IV = 30;
+  for (let v = -IV - 1; v <= IV + 1; v++) for (let u = -IW - 1; u <= IW + 1; u++) {
+    const au = Math.abs(u), av = Math.abs(v);
+    const onU = au >= IW, onV = av >= IV;
+    if (!onU && !onV) continue;
+    const along = onU && !onV ? v : u;
+    const gate = Math.abs(along) <= 2 && !(onU && onV);
+    const outer = au === IW + 1 || av === IV + 1;
+    for (let h = 0; h <= 8; h++) {
+      let id = h === 0 ? B.COBBLE : rnd(u * 5 + h, v * 3) < 0.12 ? B.MOSSY_BRICK : B.STONE_BRICK;
+      if (gate && h >= 1 && h <= 5) id = 0;
+      if (h === 7 && !outer) id = B.COBBLE; // wall walk
+      if (h === 8) id = outer && ((u + v) & 1) === 0 ? B.STONE_BRICK : 0; // crenels
+      if (h === 4 && !gate && (Math.abs(along) === 3 || (((along % 8) + 8) % 8 === 4))) id = B.LANTERN;
+      set(u, h, v, id);
+    }
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const ua = sx > 0 ? IW - 2 : -IW - 3, va = sz > 0 ? IV - 2 : -IV - 3;
+    for (let h = 0; h <= 12; h++) for (let v = va; v <= va + 5; v++) for (let u = ua; u <= ua + 5; u++) {
+      const e = u === ua || u === ua + 5 || v === va || v === va + 5;
+      let id = h === 12 ? (e && ((u + v) & 1) === 0 ? B.STONE_BRICK : 0) : B.STONE_BRICK;
+      if (h === 8 && e && (u === ua + 2 || v === va + 2)) id = B.GLASS;
+      set(u, h, v, id);
+    }
+    set(ua + 2, 12, va + 2, B.LANTERN); // beacon
+  }
+
   // plaza wells & fountains
   for (const [u, v] of [[-28, -28], [28, -28], [-28, 28], [28, 28], [-24, 0], [24, 0]]) well(u, v);
   return g;

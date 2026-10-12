@@ -103,7 +103,7 @@ function Sky() {
     }
     const moon = 1 - light;
     if (amb.current) {
-      amb.current.intensity = 0.25 + 0.55 * light + 0.2 * moon;
+      amb.current.intensity = 0.38 + 0.42 * light + 0.3 * moon;
       amb.current.color.copy(col).lerp(WHITE, 0.4).lerp(MOON_AMB, moon * 0.7);
     }
     if (sun.current) {
@@ -113,7 +113,7 @@ function Sky() {
       const ly = isMoon ? -sy : sy;
       const lx = isMoon ? -Math.cos(a) : Math.cos(a);
       if (isMoon) {
-        s.intensity = 0.75 * moon;
+        s.intensity = 1.0 * moon;
         s.color.copy(MOON_COL);
       } else {
         s.intensity = 2.4 * light;
@@ -658,8 +658,11 @@ float cloudShade(vec2 p){ p = (p - vec2(cloudT*${WIND_X.toFixed(2)}, cloudT*${WI
 function addCloudShadows(m: THREE.Material) {
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, cloudU);
-    sh.vertexShader = "varying vec3 vCW;\n" + sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\nvCW = (modelMatrix * vec4(transformed, 1.0)).xyz;");
-    sh.fragmentShader = CLOUD_GLSL + sh.fragmentShader.replace(
+    sh.vertexShader = "attribute float blk;\nvarying float vBlk;\nvarying vec3 vCW;\n" + sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\nvCW = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvBlk = blk;");
+    sh.fragmentShader = "varying float vBlk;\n" + CLOUD_GLSL + sh.fragmentShader.replace(
+      "#include <fog_fragment>",
+      "gl_FragColor.rgb += diffuseColor.rgb * vec3(1.0, 0.68, 0.36) * vBlk * mix(1.5, 0.15, cloudDay);\n#include <fog_fragment>",
+    ).replace(
       "#include <dithering_fragment>",
       "gl_FragColor.rgb *= 1.0 - cloudShade(vCW.xz) * 0.32 * cloudDay;\n#include <dithering_fragment>",
     );
