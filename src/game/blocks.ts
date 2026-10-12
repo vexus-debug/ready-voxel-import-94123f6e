@@ -24,6 +24,10 @@ export const B = {
   STONE_BRICK: 20,
   MOSSY_BRICK: 21,
   TIMBER: 22,
+  LANTERN: 23,
+  DOOR: 24,
+  PLASTER: 25,
+  THATCH: 26,
 } as const;
 
 export type Tool = "pickaxe" | "axe" | "shovel";
@@ -59,6 +63,10 @@ export const BLOCKS: Record<number, BlockDef> = {
   [B.STONE_BRICK]: { name: "Castle Stone Brick", hardness: 5, tool: "pickaxe", tiles: [24, 24, 24], drop: B.STONE_BRICK },
   [B.MOSSY_BRICK]: { name: "Mossy Stone Brick", hardness: 5, tool: "pickaxe", tiles: [25, 25, 25], drop: B.STONE_BRICK },
   [B.TIMBER]: { name: "Spruce Roof Timber", hardness: 2, tool: "axe", tiles: [26, 26, 26], drop: B.TIMBER },
+  [B.LANTERN]: { name: "Iron Lantern", hardness: 0.5, tool: null, tiles: [27, 27, 27], drop: B.LANTERN },
+  [B.DOOR]: { name: "Oak Door", hardness: 2, tool: "axe", tiles: [8, 28, 8], drop: B.DOOR, transparent: true },
+  [B.PLASTER]: { name: "Lime Plaster", hardness: 1.5, tool: "pickaxe", tiles: [29, 29, 29], drop: B.PLASTER },
+  [B.THATCH]: { name: "Straw Thatch", hardness: 0.6, tool: null, tiles: [30, 30, 30], drop: B.THATCH },
   [B.FERN]: { name: "Fern", hardness: 0.05, tool: null, tiles: [23, 23, 23], drop: 0, transparent: true },
 };
 
@@ -81,7 +89,7 @@ export const HOTBAR: Item[] = [
 export const isTransparent = (id: number) => id === 0 || !!BLOCKS[id]?.transparent;
 /** blocks the player walks through (air + plants) */
 export const isPlant = (id: number) => id === B.TALLGRASS || id === B.FLOWER || id === B.REED || id === B.ALOE || id === B.FERN;
-export const isPassable = (id: number) => id === 0 || id === B.WATER || isPlant(id);
+export const isPassable = (id: number) => id === 0 || id === B.WATER || isPlant(id) || id === B.DOOR;
 /** natural terrain that gets smoothed into organic shapes */
 export const isNatural = (id: number) => id === B.GRASS || id === B.DIRT || id === B.STONE || id === B.SAND || id === B.JUNGLE_GRASS;
 
@@ -325,6 +333,36 @@ export function drawAtlas(): HTMLCanvasElement {
     if (fu > 0.94) return [36, 26, 18];
     const grain = N(u * 0.3 + col * 0.41, v * 0.25, 8, 3);
     return mul(mix([62, 44, 30], [102, 74, 50], grain), 0.9 + (n - 0.5) * 0.1);
+  });
+  // iron lantern: dark frame, glowing amber pane with a flame core
+  put(27, (u, v, n) => {
+    const e = Math.min(u, v, 1 - u, 1 - v);
+    if (e < 0.1 || Math.abs(u - 0.5) < 0.03 || Math.abs(v - 0.5) < 0.03) return mul([42, 36, 32], 0.9 + n * 0.2);
+    const d = Math.hypot(u - 0.5, (v - 0.55) * 0.8);
+    return mix([255, 236, 170], [228, 120, 34], d * 2.4).map((c) => c * (0.95 + n * 0.08));
+  });
+  // oak door: vertical planks, iron bands, ring handle
+  put(28, (u, v, n) => {
+    if (Math.min(u, 1 - u) < 0.06 || Math.min(v, 1 - v) < 0.04) return mul([58, 38, 22], 0.9 + n * 0.15);
+    if (Math.abs(v - 0.22) < 0.035 || Math.abs(v - 0.78) < 0.035) return mul([60, 60, 64], 0.85 + n * 0.3);
+    if (Math.hypot(u - 0.78, v - 0.52) < 0.05) return [40, 40, 44];
+    const col = Math.floor(u * 4), fu = u * 4 - col;
+    if (fu < 0.06) return [48, 30, 18];
+    const grain = N(u * 0.3 + col * 0.37, v * 0.2, 8, 3);
+    return mul(mix([92, 58, 32], [128, 84, 48], grain), 0.92 + (n - 0.5) * 0.12);
+  });
+  // lime plaster daub
+  put(29, (u, v, n) => {
+    const big = N(u, v, 4, 3), fine = M(u, v, 16, 2);
+    return mul(mix([206, 196, 172], [236, 230, 214], big), 0.92 + fine * 0.1 + (n - 0.5) * 0.06);
+  });
+  // straw thatch: layered golden reed bundles
+  put(30, (u, v, n) => {
+    const row = Math.floor(v * 4), fv = v * 4 - row;
+    const streak = N(u * 1.0 + row * 0.3, v * 0.1, 16, 2);
+    let col = mix([150, 116, 56], [210, 176, 98], streak);
+    if (fv > 0.86) col = mul(col, 0.6);
+    return mul(col, 0.9 + (n - 0.5) * 0.15);
   });
   ctx.putImageData(img, 0, 0);
   return c;
