@@ -155,6 +155,7 @@ export class World {
             id = edge && ((x0 + lx + z0 + lz) & 1) === 0 ? B.STONE_BRICK : 0;
           }
           if (h === top && !isTower) id = B.COBBLE; // walkway
+          if (inWall && !isTower && !gate && h === 6 && (d === K_HALF + 1 || d === K_HALF + WALL_T) && ((along % 10) + 10) % 10 === 5) id = B.LANTERN;
           c[idx(lx, y, lz)] = id;
         }
       }
@@ -494,6 +495,7 @@ const FACES = [
 ];
 
 const AO = [1, 0.78, 0.6, 0.45];
+const LDIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const solid = (id: number) => (id !== 0 && !isTransparent(id) ? 1 : 0);
 
 // unit rock template: icosphere (non-indexed triangles)
@@ -541,6 +543,40 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
   const ox = cx * CH, oz = cz * CH;
   const eps = 0.001;
   const off = [0, 0, 0];
+  // block light: flood-fill from lanterns through open cells (radius LMAX)
+  const R = 8, SX = CH + 2 * R, LMAX = 8;
+  const nb: Uint8Array[] = [];
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) nb.push(world.getChunk(cx + dx, cz + dz));
+  const cellId = (rx: number, y: number, rz: number) => {
+    const lx = rx - R, lz = rz - R;
+    const ax = lx < 0 ? -1 : lx >= CH ? 1 : 0, az = lz < 0 ? -1 : lz >= CH ? 1 : 0;
+    return nb[(az + 1) * 3 + ax + 1][idx(lx - ax * CH, y, lz - az * CH)];
+  };
+  const light = new Uint8Array(SX * SX * H);
+  const q = new Int32Array(SX * SX * H);
+  let qh = 0, qt = 0;
+  for (let y = 1; y < H; y++) for (let rz = 0; rz < SX; rz++) for (let rx = 0; rx < SX; rx++)
+    if (cellId(rx, y, rz) === B.LANTERN) { const i = (y * SX + rz) * SX + rx; light[i] = LMAX; q[qt++] = i; }
+  while (qh < qt) {
+    const i = q[qh++], l = light[i];
+    if (l <= 1) continue;
+    const rx = i % SX, rz = ((i / SX) | 0) % SX, y = (i / (SX * SX)) | 0;
+    for (const [dx, dy, dz] of LDIRS) {
+      const nx = rx + dx, ny = y + dy, nz = rz + dz;
+      if (nx < 0 || nz < 0 || nx >= SX || nz >= SX || ny < 1 || ny >= H) continue;
+      const j = (ny * SX + nz) * SX + nx;
+      if (light[j] >= l - 1) continue;
+      const nid = cellId(nx, ny, nz);
+      if (!isTransparent(nid) || nid === B.LANTERN) continue;
+      light[j] = l - 1; q[qt++] = j;
+    }
+  }
+  const blkAt = (lx: number, y: number, lz: number) => {
+    if (y < 0 || y >= H) return 0;
+    const v = light[(y * SX + lz + R) * SX + lx + R];
+    return v ? Math.pow(v / LMAX, 1.5) : 0;
+  };
+  const blk: number[] = [];
   const tileUV = (tile: number, u: number, v: number) => {
     const tc = tile % ATLAS_COLS, tr = Math.floor(tile / ATLAS_COLS);
     u = Math.min(1 - eps, Math.max(eps, u)); v = Math.min(1 - eps, Math.max(eps, v));
@@ -566,7 +602,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
               const base = pos.length / 3;
               pos.push(wx + ax + j, y, wz + az + j2, wx + bx + j, y, wz + bz + j2, wx + ax + j, y + sc, wz + az + j2, wx + bx + j, y + sc, wz + bz + j2);
               tileUV(ptile, 0, 0); tileUV(ptile, 1, 0); tileUV(ptile, 0, 1); tileUV(ptile, 1, 1);
-              for (const l of [0.75, 0.75, 1.1, 1.1]) col.push(l, l, l);
+              for (const l of [0.75, 0.75, 1.1, 1.1]) { col.push(l, l, l); blk.push(blkAt(x, y, z)); }
               if (side) ind.push(base, base + 2, base + 1, base + 2, base + 3, base + 1);
               else ind.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
             }
@@ -585,7 +621,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
             pos.push(wx + 0.5 + rx, y + Math.max(-0.05, ry + sy * 0.4), wz + 0.5 + rz);
             tileUV(3, rx + 0.5, ry + rz + 0.5);
             const l = 0.75 + 0.25 * (py + 0.5);
-            col.push(l, l, l);
+            col.push(l, l, l); blk.push(blkAt(x, y, z));
             ind.push(base + i / 3);
           }
           continue;
@@ -618,6 +654,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
             ao.push(AO[occ]);
           }
           let k = 0;
+          const fb = blkAt(nx, ny, nz);
           const isWater = id === B.WATER;
           const sink = isWater && (y + 1 >= H || world.get(wx, y + 1, wz) !== B.WATER) ? 0.12 : 0;
           const tree = id === B.LOG || id === B.LEAVES;
@@ -633,6 +670,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
             // foliage scatters light through itself, so its undersides never go pitch black
             const l = isWater ? 1 : id === B.LEAVES ? 0.9 + 0.1 * F.s * ao[k++] + 0.25 : (0.82 + 0.18 * F.s) * ao[k++];
             col.push(l, l, l);
+            blk.push(id === B.LANTERN ? 1.8 : fb);
           }
           const out = isWater ? wind : ind;
           // flip quad diagonal to avoid anisotropic AO artifacts
@@ -644,6 +682,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number) {
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("blk", new THREE.Float32BufferAttribute(blk, 1));
   g.setIndex(ind.concat(wind));
   g.addGroup(0, ind.length, 0);
   g.addGroup(ind.length, wind.length, 1);
